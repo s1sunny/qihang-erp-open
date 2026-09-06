@@ -138,8 +138,12 @@ public class SseService {
                 log.debug("无法向客户端 ID: {} 发送消息，正在移除连接", clientId, e);
                 // 移除失效的 emitter
                 clientEmitters.remove(clientId);
-                // 标记 emitter 完成并带有错误
-                emitter.completeWithError(e);
+                // 标记 emitter 完成并带有错误（需捕获IllegalStateException避免竞态条件）
+                try {
+                    emitter.completeWithError(e);
+                } catch (IllegalStateException ignored) {
+                    // AsyncContext已被回调销毁，忽略
+                }
                 return false; // 发送失败
             }
         } else {
