@@ -33,6 +33,11 @@ public class AiAnalysisRecordServiceImpl implements IAiAnalysisRecordService {
     }
 
     @Override
+    public void removeById(Long id) {
+        mapper.deleteById(id);
+    }
+
+    @Override
     public PageResult<AiAnalysisRecord> queryPageList(PageQuery query) {
         LambdaQueryWrapper<AiAnalysisRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.orderByDesc(AiAnalysisRecord::getCreatedTime);

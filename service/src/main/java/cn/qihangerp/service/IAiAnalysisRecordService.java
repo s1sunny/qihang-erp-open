@@ -7,5 +7,6 @@ import cn.qihangerp.model.entity.AiAnalysisRecord;
 public interface IAiAnalysisRecordService {
     void save(AiAnalysisRecord record);
     AiAnalysisRecord getById(Long id);
+    void removeById(Long id);
     PageResult<AiAnalysisRecord> queryPageList(PageQuery query);
 }

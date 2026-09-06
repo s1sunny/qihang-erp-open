@@ -68,6 +68,7 @@ const viewsMap: Record<string, () => Promise<any>> = {
 
   // ai
   'ai/config': () => import('@/views/ai/config.vue'),
+  'ai/analysis': () => import('@/views/ai/analysis.vue'),
 
   // components
   'components/icons/index': () => import('@/views/components/icons/index.vue'),
@@ -84,9 +85,6 @@ const viewsMap: Record<string, () => Promise<any>> = {
   // oauth
   'oauth/pdd_callback': () => import('@/views/oauth/pdd_callback.vue'),
   'oauth/weidian_callback': () => import('@/views/oauth/weidian_callback.vue'),
-
-  // openAuth
-  'openAuth/index': () => import('@/views/openAuth/index.vue'),
 
   // order
   'order/index': () => import('@/views/order/index.vue'),
@@ -128,7 +126,7 @@ const viewsMap: Record<string, () => Promise<any>> = {
   'shop/merchant/index': () => import('@/views/shop/merchant/index.vue'),
   'shop/merchant': () => import('@/views/shop/merchant/index.vue'),
   'shop/platform/index': () => import('@/views/shop/platform/index.vue'),
-  'shop/region/index': () => import('@/views/shop/region/index.vue'),
+
   'shop/pull_log': () => import('@/views/shop/pull_log.vue'),
 
   // stock
