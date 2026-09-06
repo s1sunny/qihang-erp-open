@@ -1,148 +1,126 @@
 <template>
-  <div class="analysis-container">
-    <!-- 左侧面板 -->
-    <div class="analysis-sidebar">
-      <div class="sidebar-section">
-        <div class="section-title">分析模板</div>
-        <div class="template-list">
-          <div
-            v-for="tpl in templates"
-            :key="tpl.type"
-            class="template-item"
-            :class="{ active: currentType === tpl.type && !isAnalyzing }"
-            @click="selectTemplate(tpl.type)"
-          >
-            <div class="template-icon" :style="{ background: tpl.color }">
-              <span>{{ tpl.icon }}</span>
-            </div>
-            <div class="template-info">
-              <div class="template-name">{{ tpl.label }}</div>
-              <div class="template-desc">{{ tpl.desc }}</div>
-            </div>
-          </div>
+  <div class="app-container">
+    <el-alert v-if="!aiConfigured" title="请先在 AI 智能 > 模型配置 中添加并启用默认模型" type="warning" show-icon :closable="false" style="margin-bottom: 16px" />
+
+    <!-- 顶部：分析类型选择卡片 -->
+    <div class="analysis-types">
+      <div
+        v-for="tpl in templates"
+        :key="tpl.type"
+        class="type-card"
+        :class="{ active: currentType === tpl.type }"
+        @click="selectTemplate(tpl.type)"
+      >
+        <div class="type-icon" :style="{ background: tpl.color }">{{ tpl.icon }}</div>
+        <div class="type-info">
+          <div class="type-name">{{ tpl.label }}</div>
+          <div class="type-desc">{{ tpl.desc }}</div>
         </div>
       </div>
+    </div>
 
-      <div class="sidebar-section history-section">
-        <div class="section-title">
-          历史记录
+    <!-- 中间：输入区 -->
+    <el-card class="input-card" v-if="currentType">
+      <div class="input-header">
+        <span class="input-label">{{ currentTemplate?.icon }} {{ currentTemplate?.label }}</span>
+        <el-tag v-if="currentTemplate" type="info" size="small" effect="plain">{{ currentTemplate.scope }}</el-tag>
+      </div>
+      <el-input
+        v-model="userInput"
+        type="textarea"
+        :rows="8"
+        placeholder="请输入分析需求..."
+        :disabled="isAnalyzing"
+      />
+      <div class="input-actions">
+        <el-button
+          type="primary"
+          size="large"
+          :loading="isAnalyzing"
+          :disabled="!currentType || !aiConfigured"
+          @click="startAnalysis"
+        >
+          <el-icon v-if="!isAnalyzing"><VideoPlay /></el-icon>
+          {{ isAnalyzing ? 'AI 分析中...' : '开始分析' }}
+        </el-button>
+        <el-button v-if="isAnalyzing" @click="stopAnalysis">停止</el-button>
+      </div>
+    </el-card>
+
+    <!-- 分析结果 -->
+    <el-card v-if="currentResult || isAnalyzing || errorMessage" class="result-card">
+      <template #header>
+        <div class="result-header">
+          <span>分析结果</span>
+          <div v-if="isAnalyzing" class="analyzing-badge">
+            <el-icon class="is-loading"><Loading /></el-icon>
+            AI 正在分析中，请稍候...
+          </div>
+          <el-button v-if="currentResult && !isAnalyzing" text size="small" @click="resetAll">
+            <el-icon><RefreshLeft /></el-icon> 重新分析
+          </el-button>
+        </div>
+      </template>
+
+      <div v-if="errorMessage" style="margin-bottom: 16px">
+        <el-alert :title="errorMessage" type="error" show-icon :closable="false" />
+      </div>
+
+      <div v-if="isAnalyzing && !currentResult" class="analyzing-placeholder">
+        <el-icon class="is-loading" :size="32"><Loading /></el-icon>
+        <p>AI 正在调用工具获取业务数据，请稍候...</p>
+      </div>
+
+      <div v-if="currentResult" class="result-markdown" v-html="renderMarkdown(currentResult)"></div>
+    </el-card>
+
+    <!-- 历史记录 -->
+    <el-card v-if="!currentResult && !isAnalyzing" class="history-card">
+      <template #header>
+        <div class="result-header">
+          <span>历史分析记录</span>
           <el-button text size="small" @click="loadHistory" :loading="historyLoading">
             <el-icon><Refresh /></el-icon>
           </el-button>
         </div>
-        <div class="history-list" v-loading="historyLoading">
-          <div
-            v-for="record in historyList"
-            :key="record.id"
-            class="history-item"
-            :class="{ active: currentRecordId === record.id }"
-            @click="viewHistory(record)"
-          >
-            <div class="history-type">
-              <el-tag :type="getTagType(record.analysisType)" size="small" effect="plain">
-                {{ getTypeLabel(record.analysisType) }}
-              </el-tag>
-            </div>
-            <div class="history-content">{{ record.analysisContent || '自动分析' }}</div>
-            <div class="history-time">{{ formatTime(record.createdTime) }}</div>
-          </div>
-          <el-empty v-if="!historyLoading && historyList.length === 0" description="暂无记录" :image-size="60" />
-        </div>
-      </div>
-    </div>
-
-    <!-- 右侧主内容区 -->
-    <div class="analysis-main">
-      <!-- 顶部标题栏 -->
-      <div class="analysis-header">
-        <div class="header-left">
-          <el-icon :size="20" color="#409eff"><DataAnalysis /></el-icon>
-          <span class="header-title">{{ currentTemplate?.label || '智能分析' }}</span>
-          <el-tag v-if="currentRecordId" type="success" size="small" effect="plain">历史查看</el-tag>
-        </div>
-        <div class="header-right" v-if="isAnalyzing">
-          <el-tag type="warning" size="small" effect="dark">
-            <el-icon class="is-loading"><Loading /></el-icon>
-            分析中...
-          </el-tag>
-        </div>
-      </div>
-
-      <!-- 分析内容区 -->
-      <div class="analysis-content" ref="contentRef">
-        <!-- 欢迎页 / 模板选择 -->
-        <div v-if="!currentResult && !isAnalyzing" class="welcome-panel">
-          <div class="welcome-icon">
-            <el-icon :size="64" color="#409eff"><MagicStick /></el-icon>
-          </div>
-          <h2>AI 智能分析</h2>
-          <p>选择左侧分析模板，或输入自定义分析需求</p>
-          <div class="quick-actions">
-            <el-button
-              v-for="tpl in templates"
-              :key="tpl.type"
-              :type="currentType === tpl.type ? 'primary' : 'default'"
-              @click="selectTemplate(tpl.type)"
-            >
-              {{ tpl.icon }} {{ tpl.label }}
-            </el-button>
-          </div>
-        </div>
-
-        <!-- 分析进行中 / 结果展示 -->
-        <div v-if="currentResult || isAnalyzing" class="result-panel">
-          <div class="result-markdown" v-html="renderMarkdown(currentResult)"></div>
-          <div v-if="isAnalyzing && !currentResult" class="analyzing-hint">
-            <span class="thinking-text">正在调用AI分析引擎</span>
-            <span class="loading-dots">
-              <span>.</span><span>.</span><span>.</span>
-            </span>
-          </div>
-        </div>
-
-        <!-- 分析失败 -->
-        <div v-if="errorMessage" class="error-panel">
-          <el-alert :title="errorMessage" type="error" show-icon :closable="false" />
-        </div>
-      </div>
-
-      <!-- 底部输入区 -->
-      <div class="analysis-input" v-if="currentType">
-        <div class="input-hint" v-if="currentTemplate">
-          {{ currentTemplate.inputHint }}
-        </div>
-        <div class="input-row">
-          <el-input
-            v-model="userInput"
-            type="textarea"
-            :rows="2"
-            :placeholder="currentTemplate?.inputPlaceholder || '输入分析需求...'"
-            :disabled="isAnalyzing"
-            @keydown.enter.ctrl="startAnalysis"
-          />
-          <el-button
-            type="primary"
-            :loading="isAnalyzing"
-            :disabled="!currentType"
-            @click="startAnalysis"
-            class="send-btn"
-          >
-            <el-icon v-if="!isAnalyzing"><VideoPlay /></el-icon>
-            {{ isAnalyzing ? '分析中' : '开始分析' }}
-          </el-button>
-        </div>
-        <div class="input-tip">Ctrl + Enter 发送</div>
-      </div>
-    </div>
+      </template>
+      <el-table :data="historyList" v-loading="historyLoading" style="width: 100%" empty-text="暂无分析记录" size="small">
+        <el-table-column label="类型" width="100">
+          <template #default="{ row }">
+            <el-tag :type="getTagType(row.analysisType)" size="small" effect="plain">
+              {{ getTypeLabel(row.analysisType) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="分析内容" prop="analysisContent" min-width="200" show-overflow-tooltip />
+        <el-table-column label="状态" width="80" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.status === 0" type="warning" size="small">分析中</el-tag>
+            <el-tag v-else-if="row.status === 1" type="success" size="small">完成</el-tag>
+            <el-tag v-else type="danger" size="small">失败</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="时间" width="160">
+          <template #default="{ row }">{{ formatTime(row.createdTime) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" align="center">
+          <template #default="{ row }">
+            <el-button text size="small" type="primary" @click="viewHistory(row)">查看</el-button>
+            <el-button text size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed } from 'vue'
-import { Refresh, Loading, VideoPlay, DataAnalysis, MagicStick } from '@element-plus/icons-vue'
+import { ref, computed, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { VideoPlay, Loading, Refresh, RefreshLeft } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import { getToken } from '@/utils/auth'
-import { getAnalysisList } from '@/api/ai/analysis'
+import { getAnalysisList, deleteAnalysis } from '@/api/ai/analysis'
 import type { AiAnalysisRecord } from '@/api/ai/analysis'
 
 interface Template {
@@ -151,8 +129,8 @@ interface Template {
   icon: string
   desc: string
   color: string
-  inputHint: string
-  inputPlaceholder: string
+  scope: string
+  defaultPrompt: string
 }
 
 const templates: Template[] = [
@@ -160,46 +138,46 @@ const templates: Template[] = [
     type: 'sales',
     label: '销售分析',
     icon: '📊',
-    desc: '销售趋势、热销排名、平台对比',
+    desc: '销售趋势、热销排名、平台对比、订单状态分布',
     color: '#409eff',
-    inputHint: '可补充：关注的时间范围、特定平台、特定商品等',
-    inputPlaceholder: '如：只分析淘宝平台最近3天的销售情况'
+    scope: '最近7天',
+    defaultPrompt: '请对最近7天的销售数据进行深度分析，分析维度包括：\n1. 销售趋势分析 - 整体销售走势，环比变化\n2. 热销商品排名 - 按销量/金额排序Top10\n3. 平台销售对比 - 各平台（淘宝/京东/拼多多/抖店等）销售占比\n4. 订单状态分析 - 各状态订单分布，异常订单识别\n5. 运营建议 - 基于数据给出3-5条可执行建议\n\n请调用工具获取订单数据和店铺数据后进行分析。'
   },
   {
     type: 'inventory',
     label: '库存优化',
     icon: '📦',
-    desc: '库存预警、周转分析、补货建议',
+    desc: '库存预警、周转分析、滞销识别、补货建议',
     color: '#67c23a',
-    inputHint: '可补充：预警阈值、关注的仓库、特定品类等',
-    inputPlaceholder: '如：分析服装类目的库存周转情况'
+    scope: '当前库存',
+    defaultPrompt: '请对当前库存数据进行深度分析，分析维度包括：\n1. 库存总览 - SKU数量、总库存量、库存总值\n2. 库存预警 - 低库存商品（可售数量<=5）清单\n3. 库存周转分析 - 结合近期出入库数据分析周转率\n4. 滞销商品识别 - 长期无动销的库存\n5. 补货建议 - 基于销售速度和库存水平给出补货建议\n\n请调用工具获取库存数据、出入库记录和商品数据后进行分析。'
   },
   {
     type: 'customer',
     label: '客户洞察',
     icon: '👥',
-    desc: '客户画像、复购分析、售后统计',
+    desc: '客户画像、复购分析、售后统计、高价值客户',
     color: '#e6a23c',
-    inputHint: '可补充：关注的客户群体、特定时间段等',
-    inputPlaceholder: '如：分析最近30天的客户复购情况'
+    scope: '客户数据',
+    defaultPrompt: '请对客户数据进行深度分析，分析维度包括：\n1. 客户概况 - 总客户数、新增趋势\n2. 订单行为分析 - 客户下单频次、客单价分布\n3. 售后分析 - 退款率、退款原因分布\n4. 高价值客户识别 - 高频次/高金额客户特征\n5. 客户运营建议 - 拉新、留存、复购策略\n\n请调用工具获取客户数据、订单数据和退款数据后进行分析。'
   },
   {
     type: 'operation',
     label: '运营效率',
     icon: '⚡',
-    desc: '订单处理、物流时效、人效分析',
+    desc: '订单处理时效、物流效率、售后处理、人效分析',
     color: '#f56c6c',
-    inputHint: '可补充：关注的环节、特定店铺等',
-    inputPlaceholder: '如：分析各店铺的发货及时率'
+    scope: '运营数据',
+    defaultPrompt: '请对运营效率进行深度分析，分析维度包括：\n1. 订单处理效率 - 各环节（下单→发货→签收）耗时分析\n2. 物流效率 - 发货及时率、物流签收时效\n3. 售后处理效率 - 退款处理时长、成功率\n4. 人效分析 - 订单/人、处理速度等\n5. 效率提升建议 - 识别瓶颈，给出优化方案\n\n请调用工具获取订单数据、物流数据和退款数据后进行分析。'
   },
   {
     type: 'purchase',
     label: '采购分析',
     icon: '🏭',
-    desc: '采购周期、供应商评估、库存匹配',
+    desc: '采购周期、供应商评估、库存匹配、采购优化',
     color: '#909399',
-    inputHint: '可补充：关注的供应商、采购品类等',
-    inputPlaceholder: '如：分析最近的采购订单执行情况'
+    scope: '采购数据',
+    defaultPrompt: '请对采购数据进行深度分析，分析维度包括：\n1. 采购概况 - 采购订单数量、金额、供应商分布\n2. 采购周期分析 - 从下单到入库的平均时长\n3. 供应商评估 - 各供应商的交付及时率、质量情况\n4. 库存与采购匹配度 - 采购量与销售量的匹配分析\n5. 采购优化建议 - 供应商选择、采购时机、批量优化\n\n请调用工具获取采购数据、供应商数据和库存数据后进行分析。'
   }
 ]
 
@@ -208,12 +186,11 @@ const userInput = ref('')
 const isAnalyzing = ref(false)
 const currentResult = ref('')
 const errorMessage = ref('')
-const currentRecordId = ref<number | null>(null)
 const historyList = ref<AiAnalysisRecord[]>([])
 const historyLoading = ref(false)
-const contentRef = ref<HTMLElement>()
 const abortRef = ref<AbortController | null>(null)
 
+const aiConfigured = ref(true)
 const currentTemplate = computed(() => templates.find(t => t.type === currentType.value))
 
 function selectTemplate(type: string) {
@@ -221,7 +198,15 @@ function selectTemplate(type: string) {
   currentType.value = type
   currentResult.value = ''
   errorMessage.value = ''
-  currentRecordId.value = null
+  const tpl = templates.find(t => t.type === type)
+  userInput.value = tpl?.defaultPrompt || ''
+}
+
+function resetAll() {
+  currentType.value = ''
+  userInput.value = ''
+  currentResult.value = ''
+  errorMessage.value = ''
 }
 
 async function startAnalysis() {
@@ -230,7 +215,6 @@ async function startAnalysis() {
   isAnalyzing.value = true
   currentResult.value = ''
   errorMessage.value = ''
-  currentRecordId.value = null
 
   try {
     const token = getToken()
@@ -284,16 +268,11 @@ async function startAnalysis() {
           if (type === 'message') {
             fullContent += content
             currentResult.value = fullContent
-            scrollToBottom()
-          } else if (type === 'analysis_start') {
-            if (content) currentRecordId.value = Number(content)
-          } else if (type === 'done') {
-            if (content) currentRecordId.value = Number(content)
           } else if (type === 'error') {
             errorMessage.value = content
           }
         } catch {
-          // ignore non-JSON
+          // ignore
         }
       }
     }
@@ -302,7 +281,6 @@ async function startAnalysis() {
       currentResult.value = fullContent
     }
 
-    // 刷新历史记录
     loadHistory()
   } catch (e: any) {
     if (e.name === 'AbortError') return
@@ -313,46 +291,52 @@ async function startAnalysis() {
   }
 }
 
+function stopAnalysis() {
+  abortRef.value?.abort()
+  isAnalyzing.value = false
+}
+
 async function loadHistory() {
   historyLoading.value = true
   try {
-    const res = await getAnalysisList({ pageNum: 1, pageSize: 50 })
+    const res = await getAnalysisList({ pageNum: 1, pageSize: 20 })
     if (res.data?.records) {
       historyList.value = res.data.records
     } else if (Array.isArray(res.data)) {
       historyList.value = res.data
     }
   } catch {
-    // 静默失败
+    // silent
   } finally {
     historyLoading.value = false
   }
 }
 
 function viewHistory(record: AiAnalysisRecord) {
-  if (isAnalyzing.value) return
-  currentRecordId.value = record.id!
   currentType.value = record.analysisType
   currentResult.value = record.analysisResult || ''
   errorMessage.value = record.status === 2 ? (record.errorMessage || '分析失败') : ''
   userInput.value = record.analysisContent || ''
 }
 
+function handleDelete(row: AiAnalysisRecord) {
+  ElMessageBox.confirm(`确定删除这条分析记录吗？`, '提示', { type: 'warning' }).then(() => {
+    deleteAnalysis(row.id!).then(() => {
+      ElMessage.success('删除成功')
+      loadHistory()
+    })
+  })
+}
+
 function getTagType(type: string): string {
   const map: Record<string, string> = {
-    sales: '',
-    inventory: 'success',
-    customer: 'warning',
-    operation: 'danger',
-    purchase: 'info',
-    custom: ''
+    sales: '', inventory: 'success', customer: 'warning', operation: 'danger', purchase: 'info'
   }
   return map[type] || ''
 }
 
 function getTypeLabel(type: string): string {
-  const tpl = templates.find(t => t.type === type)
-  return tpl?.label || type
+  return templates.find(t => t.type === type)?.label || type
 }
 
 function formatTime(time?: string): string {
@@ -363,20 +347,12 @@ function formatTime(time?: string): string {
   if (diff < 60000) return '刚刚'
   if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
   if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
-  if (diff < 604800000) return Math.floor(diff / 86400000) + '天前'
-  return time.slice(0, 10)
+  return time.slice(0, 16).replace('T', ' ')
 }
 
 function renderMarkdown(text: string): string {
   if (!text) return ''
   return marked.parse(text) as string
-}
-
-function scrollToBottom() {
-  nextTick(() => {
-    const el = contentRef.value
-    if (el) el.scrollTop = el.scrollHeight
-  })
 }
 
 onMounted(() => {
@@ -385,228 +361,125 @@ onMounted(() => {
 </script>
 
 <style lang="scss" scoped>
-.analysis-container {
+.analysis-types {
   display: flex;
-  height: calc(100vh - 84px);
-  overflow: hidden;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 
-// 左侧面板
-.analysis-sidebar {
-  width: 280px;
-  min-width: 280px;
-  border-right: 1px solid #ebeef5;
-  display: flex;
-  flex-direction: column;
-  background: #fff;
-}
-
-.sidebar-section {
-  padding: 16px;
-}
-
-.section-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #303133;
-  margin-bottom: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.template-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.template-item {
+.type-card {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 12px 16px;
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
-  border: 1px solid transparent;
+  border: 2px solid #ebeef5;
+  background: #fff;
+  flex: 1;
+  min-width: 180px;
 
   &:hover {
-    background: #f5f7fa;
+    border-color: #c0c4cc;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   }
 
   &.active {
-    background: #ecf5ff;
     border-color: #409eff;
+    background: #ecf5ff;
+    box-shadow: 0 2px 8px rgba(64, 158, 255, 0.2);
   }
 }
 
-.template-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
+.type-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  font-size: 20px;
   color: #fff;
   flex-shrink: 0;
 }
 
-.template-info {
+.type-info {
   flex: 1;
   min-width: 0;
 }
 
-.template-name {
+.type-name {
   font-size: 14px;
-  font-weight: 500;
-  color: #303133;
-}
-
-.template-desc {
-  font-size: 12px;
-  color: #909399;
-  margin-top: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-// 历史记录
-.history-section {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid #ebeef5;
-}
-
-.history-list {
-  flex: 1;
-  overflow-y: auto;
-}
-
-.history-item {
-  padding: 10px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-  margin-bottom: 4px;
-
-  &:hover {
-    background: #f5f7fa;
-  }
-
-  &.active {
-    background: #ecf5ff;
-  }
-}
-
-.history-type {
-  margin-bottom: 4px;
-}
-
-.history-content {
-  font-size: 13px;
-  color: #606266;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.history-time {
-  font-size: 12px;
-  color: #c0c4cc;
-  margin-top: 4px;
-}
-
-// 右侧主内容区
-.analysis-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: #f9fafb;
-}
-
-.analysis-header {
-  padding: 14px 24px;
-  background: #fff;
-  border-bottom: 1px solid #ebeef5;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.header-icon {
-  font-size: 20px;
-  color: #409eff;
-}
-
-.header-title {
-  font-size: 16px;
   font-weight: 600;
   color: #303133;
 }
 
-// 分析内容区
-.analysis-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 24px;
+.type-desc {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.welcome-panel {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  text-align: center;
-}
-
-.welcome-icon {
-  font-size: 64px;
-  color: #409eff;
+.input-card {
   margin-bottom: 16px;
 }
 
-.welcome-panel h2 {
-  font-size: 24px;
+.input-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.input-label {
+  font-size: 15px;
+  font-weight: 600;
   color: #303133;
-  margin: 0 0 8px;
 }
 
-.welcome-panel p {
-  font-size: 14px;
-  color: #909399;
-  margin: 0 0 24px;
-}
-
-.quick-actions {
+.input-actions {
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
-  justify-content: center;
+  margin-top: 12px;
 }
 
-.result-panel {
-  max-width: 900px;
-  margin: 0 auto;
+.result-card {
+  margin-bottom: 16px;
+}
+
+.result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.analyzing-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #e6a23c;
+  font-weight: normal;
+}
+
+.analyzing-placeholder {
+  text-align: center;
+  padding: 40px 0;
+  color: #909399;
+
+  p {
+    margin-top: 12px;
+    font-size: 14px;
+  }
 }
 
 .result-markdown {
-  background: #fff;
-  border-radius: 12px;
-  padding: 24px 32px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
   line-height: 1.8;
   font-size: 14px;
   color: #303133;
@@ -627,7 +500,6 @@ onMounted(() => {
   :deep(h3) {
     font-size: 16px;
     margin: 16px 0 8px;
-    color: #303133;
   }
 
   :deep(p) {
@@ -637,10 +509,6 @@ onMounted(() => {
   :deep(ul), :deep(ol) {
     padding-left: 20px;
     margin: 8px 0;
-  }
-
-  :deep(li) {
-    margin: 4px 0;
   }
 
   :deep(table) {
@@ -667,7 +535,6 @@ onMounted(() => {
 
   :deep(strong) {
     font-weight: 600;
-    color: #303133;
   }
 
   :deep(code) {
@@ -675,7 +542,6 @@ onMounted(() => {
     padding: 1px 5px;
     border-radius: 3px;
     font-size: 13px;
-    font-family: monospace;
   }
 
   :deep(pre) {
@@ -685,10 +551,7 @@ onMounted(() => {
     overflow-x: auto;
     margin: 12px 0;
 
-    code {
-      background: none;
-      padding: 0;
-    }
+    code { background: none; padding: 0; }
   }
 
   :deep(blockquote) {
@@ -700,76 +563,7 @@ onMounted(() => {
   }
 }
 
-.analyzing-hint {
-  text-align: center;
-  padding: 32px 0;
-  color: #909399;
+.history-card {
+  margin-bottom: 16px;
 }
-
-.thinking-text {
-  font-size: 14px;
-}
-
-.loading-dots span {
-  animation: dot-blink 1.4s infinite;
-  font-weight: bold;
-  font-size: 18px;
-  line-height: 1;
-  color: #409eff;
-}
-
-.loading-dots span:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.loading-dots span:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
-@keyframes dot-blink {
-  0%, 20% { opacity: 0; }
-  50% { opacity: 1; }
-  100% { opacity: 0; }
-}
-
-.error-panel {
-  max-width: 900px;
-  margin: 0 auto;
-}
-
-// 底部输入区
-.analysis-input {
-  padding: 16px 24px;
-  background: #fff;
-  border-top: 1px solid #ebeef5;
-}
-
-.input-hint {
-  font-size: 12px;
-  color: #909399;
-  margin-bottom: 8px;
-}
-
-.input-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-}
-
-.input-row :deep(.el-textarea) {
-  flex: 1;
-}
-
-.send-btn {
-  height: 54px;
-  min-width: 100px;
-}
-
-.input-tip {
-  font-size: 12px;
-  color: #c0c4cc;
-  margin-top: 4px;
-  text-align: right;
-}
-
 </style>

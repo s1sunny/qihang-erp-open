@@ -15,7 +15,7 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * AI智能分析服务 - 基于预设模板 + tool-calling 执行深度分析
@@ -55,9 +55,6 @@ public class AiAnalysisService {
             由你自行对数据进行分组、排序、统计、对比，得出结论。
             """;
 
-    /**
-     * 分析类型对应的Prompt模板
-     */
     private static final Map<String, String> ANALYSIS_PROMPTS = Map.of(
             "sales", """
                     请对最近7天的销售数据进行深度分析，分析维度包括：
@@ -114,14 +111,15 @@ public class AiAnalysisService {
      * 执行分析并流式返回结果
      */
     public void executeAnalysis(String analysisType, String userContent, SseEmitter emitter, Long userId) {
+        AtomicBoolean emitterDone = new AtomicBoolean(false);
+
         AiConfig config = aiConfigService.getDefaultConfig();
         if (config == null) {
-            sendJsonEvent(emitter, "error", "请先在 AI 智能 > 模型配置 中添加并启用默认模型");
-            safeComplete(emitter);
+            sendEventSafe(emitter, emitterDone, "error", "请先在 AI 智能 > 模型配置 中添加并启用默认模型");
+            completeSafe(emitter, emitterDone);
             return;
         }
 
-        // 保存分析记录（状态：分析中）
         AiAnalysisRecord record = new AiAnalysisRecord();
         record.setAnalysisType(analysisType);
         record.setAnalysisContent(userContent);
@@ -135,7 +133,7 @@ public class AiAnalysisService {
 
         String fullPrompt;
         if (userContent != null && !userContent.isBlank()) {
-            fullPrompt = templatePrompt + "\n\n用户补充说明：" + userContent;
+            fullPrompt = userContent;
         } else {
             fullPrompt = templatePrompt;
         }
@@ -148,8 +146,7 @@ public class AiAnalysisService {
             log.warn("保存分析记录失败", e);
         }
 
-        // 发送分析开始事件
-        sendJsonEvent(emitter, "analysis_start", String.valueOf(record.getId()));
+        sendEventSafe(emitter, emitterDone, "analysis_start", String.valueOf(record.getId()));
 
         ChatClient chatClient = orchestrationService.buildChatClient(config,
                 goodsTools, orderTools, refundTools, inventoryTools, shopTools,
@@ -166,7 +163,7 @@ public class AiAnalysisService {
                 .subscribe(
                         chunk -> {
                             fullResponse.append(chunk);
-                            sendJsonEvent(emitter, "message", chunk);
+                            sendEventSafe(emitter, emitterDone, "message", chunk);
                         },
                         error -> {
                             log.error("AI分析流式响应错误", error);
@@ -174,8 +171,8 @@ public class AiAnalysisService {
                             record.setErrorMessage(error.getMessage());
                             record.setUpdatedTime(LocalDateTime.now());
                             try { analysisRecordService.save(record); } catch (Exception ignored) {}
-                            sendJsonEvent(emitter, "error", "分析出错: " + error.getMessage());
-                            safeComplete(emitter);
+                            sendEventSafe(emitter, emitterDone, "error", "分析出错: " + error.getMessage());
+                            completeSafe(emitter, emitterDone);
                         },
                         () -> {
                             String result = fullResponse.toString();
@@ -183,13 +180,14 @@ public class AiAnalysisService {
                             record.setStatus(1);
                             record.setUpdatedTime(LocalDateTime.now());
                             try { analysisRecordService.save(record); } catch (Exception ignored) {}
-                            sendJsonEvent(emitter, "done", String.valueOf(record.getId()));
-                            safeComplete(emitter);
+                            sendEventSafe(emitter, emitterDone, "done", String.valueOf(record.getId()));
+                            completeSafe(emitter, emitterDone);
                         }
                 );
     }
 
-    private void sendJsonEvent(SseEmitter emitter, String type, String content) {
+    private void sendEventSafe(SseEmitter emitter, AtomicBoolean done, String type, String content) {
+        if (done.get()) return;
         try {
             JSONObject event = new JSONObject();
             event.put("type", type);
@@ -197,12 +195,14 @@ public class AiAnalysisService {
                 event.put("content", content);
             }
             emitter.send(SseEmitter.event().data(event.toJSONString()));
-        } catch (IOException e) {
+        } catch (Exception e) {
             log.debug("发送SSE事件失败: {}", e.getMessage());
+            done.set(true);
         }
     }
 
-    private void safeComplete(SseEmitter emitter) {
+    private void completeSafe(SseEmitter emitter, AtomicBoolean done) {
+        if (done.getAndSet(true)) return;
         try {
             emitter.complete();
         } catch (Exception ignored) {
