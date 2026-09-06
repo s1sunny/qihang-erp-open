@@ -23,4 +23,13 @@ public interface OGoodsInventoryBatchService extends IService<OGoodsInventoryBat
      * @return 是否成功
      */
     boolean deductBatchStock(Long batchId, Integer quantity);
+
+    /**
+     * 根据条码或SKU编码查询可用批次（currentQty > 0）
+     *
+     * @param keyword 条码或SKU编码
+     * @param warehouseId 仓库ID（可选，为null时查所有仓库）
+     * @return 匹配的批次列表
+     */
+    java.util.List<OGoodsInventoryBatch> searchByKeyword(String keyword, Long warehouseId);
 }

@@ -29,3 +29,8 @@ export function stockOut(data: Record<string, any>) {
 export function getInventoryBatches(skuId: number | string, warehouseId: number | string) {
   return request({ url: '/api/erp-api/goodsInventory/batches', method: 'get', params: { skuId, warehouseId } })
 }
+
+/** 扫码出库：根据条码/SKU编码查询可用批次 */
+export function searchBatches(keyword: string, warehouseId?: number | string) {
+  return request({ url: '/api/erp-api/goodsInventory/batches/search', method: 'get', params: { keyword, warehouseId } })
+}

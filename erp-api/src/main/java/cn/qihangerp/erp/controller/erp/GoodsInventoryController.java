@@ -72,4 +72,16 @@ public class GoodsInventoryController extends BaseController {
                         .orderByAsc(OGoodsInventoryBatch::getCreateTime));
         return AjaxResult.success(list);
     }
+
+    /**
+     * 扫码出库：根据条码/SKU编码查询可用批次
+     *
+     * @param keyword     条码或SKU编码
+     * @param warehouseId 仓库ID（可选）
+     */
+    @GetMapping("/batches/search")
+    public AjaxResult searchBatches(@RequestParam String keyword, @RequestParam(required = false) Long warehouseId) {
+        List<OGoodsInventoryBatch> list = inventoryBatchService.searchByKeyword(keyword, warehouseId);
+        return AjaxResult.success(list);
+    }
 }

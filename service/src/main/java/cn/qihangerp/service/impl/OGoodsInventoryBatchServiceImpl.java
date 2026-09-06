@@ -37,4 +37,21 @@ public class OGoodsInventoryBatchServiceImpl
         update.setCurrentQty(batch.getCurrentQty() - quantity);
         return this.updateById(update);
     }
+
+    @Override
+    public List<OGoodsInventoryBatch> searchByKeyword(String keyword, Long warehouseId) {
+        LambdaQueryWrapper<OGoodsInventoryBatch> wrapper = new LambdaQueryWrapper<OGoodsInventoryBatch>()
+                .and(w -> w
+                        .like(OGoodsInventoryBatch::getBarcode, keyword)
+                        .or()
+                        .like(OGoodsInventoryBatch::getSkuCode, keyword)
+                        .or()
+                        .like(OGoodsInventoryBatch::getBatchNum, keyword))
+                .gt(OGoodsInventoryBatch::getCurrentQty, 0);
+        if (warehouseId != null) {
+            wrapper.eq(OGoodsInventoryBatch::getWarehouseId, warehouseId);
+        }
+        wrapper.orderByAsc(OGoodsInventoryBatch::getCreateTime);
+        return this.list(wrapper);
+    }
 }
